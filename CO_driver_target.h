@@ -51,6 +51,7 @@ extern "C" {
  * For more information see file CO_config.h. */
 #define CO_CAN_INTERFACE CAN1
 #define CO_CAN_RX_FIFO_INDEX 0
+#define CO_FSYS 36000
 
 /* Basic definitions. If big endian, CO_SWAP_xx macros must swap bytes. */
 #define CO_LITTLE_ENDIAN
@@ -135,6 +136,13 @@ typedef struct {
 #define CO_FLAG_SET(rxNew) {CO_MemoryBarrier(); rxNew = (void*)1L;}
 #define CO_FLAG_CLEAR(rxNew) {CO_MemoryBarrier(); rxNew = NULL;}
 
+
+
+/* Callback for checking bitrate, needed by LSS slave */
+bool_t CO_LSSchkBitrateCallback(void *object, uint16_t bitRate);
+
+/* Function called from CAN receive interrupt handler */
+void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason);
 
 #ifdef __cplusplus
 }

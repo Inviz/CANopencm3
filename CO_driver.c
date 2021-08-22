@@ -30,11 +30,197 @@
 
 //#include <libopencm3/stm32/flash.h>
 
+typedef struct {
+    uint8_t   BRP;      /* (1...64) Baud Rate Prescaler */
+    uint8_t   SJW;      /* (1...4) SJW time */
+    uint8_t   PROP;     /* (1...8) PROP time */
+    uint8_t   phSeg1;   /* (1...8) Phase Segment 1 time */
+    uint8_t   phSeg2;   /* (1...8) Phase Segment 2 time */
+    uint16_t  bitrate;  /* bitrate in kbps */
+} CO_CANbitRateData_t;
 
-#define PARM_SJW	CAN_BTR_SJW_1TQ
-#define PARM_TS1	CAN_BTR_TS1_15TQ
-#define PARM_TS2	CAN_BTR_TS2_2TQ
-#define PARM_BRP	2		// 1mbps
+
+#ifndef CO_CANbitRateDataInitializers
+    /* Macros, which divides K into (SJW + PROP + PhSeg1 + PhSeg2) */
+    #define TQ_x_7    1, 2, 3, 1
+    #define TQ_x_8    1, 2, 3, 2
+    #define TQ_x_9    1, 2, 4, 2
+    #define TQ_x_10   1, 3, 4, 2
+    #define TQ_x_12   1, 3, 6, 2
+    #define TQ_x_14   1, 4, 7, 2
+    #define TQ_x_15   1, 4, 8, 2  /* good timing */
+    #define TQ_x_16   1, 5, 8, 2  /* good timing */
+    #define TQ_x_17   1, 6, 8, 2  /* good timing */
+    #define TQ_x_18   1, 7, 8, 2  /* good timing */
+    #define TQ_x_19   1, 8, 8, 2  /* good timing */
+    #define TQ_x_20   1, 8, 8, 3  /* good timing */
+    #define TQ_x_21   1, 8, 8, 4
+    #define TQ_x_22   1, 8, 8, 5
+    #define TQ_x_23   1, 8, 8, 6
+    #define TQ_x_24   1, 8, 8, 7
+    #define TQ_x_25   1, 8, 8, 8
+
+    #if CO_FSYS == 4000
+        #define CO_CANbitRateDataInitializers  \
+        {10,  TQ_x_20, 10}, \
+        {5,   TQ_x_20, 20}, \
+        {2,   TQ_x_20, 50}, \
+        {1,   TQ_x_16, 125}, \
+        {1,   TQ_x_8 , 250}, \
+        {1,   TQ_x_8 , 0}, \
+        {1,   TQ_x_8 , 0}, \
+        {1,   TQ_x_8 , 0}
+    #elif CO_FSYS == 8000
+        #define CO_CANbitRateDataInitializers  \
+        {25,  TQ_x_16, 10}, \
+        {10,  TQ_x_20, 20}, \
+        {5,   TQ_x_16, 50}, \
+        {2,   TQ_x_16, 125}, \
+        {1,   TQ_x_16, 250}, \
+        {1,   TQ_x_8 , 500}, \
+        {1,   TQ_x_8 , 0}, \
+        {1,   TQ_x_8 , 0}
+    #elif CO_FSYS == 12000
+        #define CO_CANbitRateDataInitializers  \
+        {40,  TQ_x_15, 10}, \
+        {20,  TQ_x_15, 20}, \
+        {8,   TQ_x_15, 50}, \
+        {3,   TQ_x_16, 125}, \
+        {2,   TQ_x_12, 250}, \
+        {1,   TQ_x_12, 500}, \
+        {1,   TQ_x_12, 0}, \
+        {1,   TQ_x_12, 0}
+    #elif CO_FSYS == 16000
+        #define CO_CANbitRateDataInitializers  \
+        {50,  TQ_x_16, 10}, \
+        {25,  TQ_x_16, 20}, \
+        {10,  TQ_x_16, 50}, \
+        {4,   TQ_x_16, 125}, \
+        {2,   TQ_x_16, 250}, \
+        {1,   TQ_x_16, 500}, \
+        {1,   TQ_x_10, 800}, \
+        {1,   TQ_x_8 , 1000}
+    #elif CO_FSYS == 20000
+        #define CO_CANbitRateDataInitializers  \
+        {50,  TQ_x_20, 10}, \
+        {25,  TQ_x_20, 20}, \
+        {10,  TQ_x_20, 50}, \
+        {5,   TQ_x_16, 125}, \
+        {2,   TQ_x_20, 250}, \
+        {1,   TQ_x_20, 500}, \
+        {1,   TQ_x_20, 0}, \
+        {1,   TQ_x_10, 1000}
+    #elif CO_FSYS == 24000
+        #define CO_CANbitRateDataInitializers  \
+        {63,  TQ_x_19, 10}, \
+        {40,  TQ_x_15, 20}, \
+        {15,  TQ_x_16, 50}, \
+        {6,   TQ_x_16, 125}, \
+        {3,   TQ_x_16, 250}, \
+        {2,   TQ_x_12, 500}, \
+        {1,   TQ_x_15, 800}, \
+        {1,   TQ_x_12, 1000}
+    #elif CO_FSYS == 32000
+        #define CO_CANbitRateDataInitializers  \
+        {64,  TQ_x_25, 10}, \
+        {50,  TQ_x_16, 20}, \
+        {20,  TQ_x_16, 50}, \
+        {8,   TQ_x_16, 125}, \
+        {4,   TQ_x_16, 250}, \
+        {2,   TQ_x_16, 500}, \
+        {2,   TQ_x_10, 800}, \
+        {1,   TQ_x_16, 1000}
+    #elif CO_FSYS == 36000
+        #define CO_CANbitRateDataInitializers  \
+        {50,  TQ_x_18, 10}, \
+        {50,  TQ_x_18, 20}, \
+        {20,  TQ_x_18, 50}, \
+        {8,   TQ_x_18, 125}, \
+        {4,   TQ_x_18, 250}, \
+        {2,   TQ_x_18, 500}, \
+        {2,   TQ_x_18, 0}, \
+        {1,   TQ_x_18, 1000}
+    #elif CO_FSYS == 40000
+        #define CO_CANbitRateDataInitializers  \
+        {50,  TQ_x_20, 0}, \
+        {50,  TQ_x_20, 20}, \
+        {25,  TQ_x_16, 50}, \
+        {10,  TQ_x_16, 125}, \
+        {5,   TQ_x_16, 250}, \
+        {2,   TQ_x_20, 500}, \
+        {1,   TQ_x_25, 800}, \
+        {1,   TQ_x_20, 1000}
+    #elif CO_FSYS == 48000
+        #define CO_CANbitRateDataInitializers  \
+        {63,  TQ_x_19, 0}, \
+        {63,  TQ_x_19, 20}, \
+        {30,  TQ_x_16, 50}, \
+        {12,  TQ_x_16, 125}, \
+        {6,   TQ_x_16, 250}, \
+        {3,   TQ_x_16, 500}, \
+        {2,   TQ_x_15, 800}, \
+        {2,   TQ_x_12, 1000}
+    #elif CO_FSYS == 56000
+        #define CO_CANbitRateDataInitializers  \
+        {61,  TQ_x_23, 0}, \
+        {61,  TQ_x_23, 20}, \
+        {35,  TQ_x_16, 50}, \
+        {14,  TQ_x_16, 125}, \
+        {7,   TQ_x_16, 250}, \
+        {4,   TQ_x_14, 500}, \
+        {5,   TQ_x_7 , 800}, \
+        {2,   TQ_x_14, 1000}
+    #elif CO_FSYS == 64000
+        #define CO_CANbitRateDataInitializers  \
+        {64,  TQ_x_25, 0}, \
+        {64,  TQ_x_25, 20}, \
+        {40,  TQ_x_16, 50}, \
+        {16,  TQ_x_16, 125}, \
+        {8,   TQ_x_16, 250}, \
+        {4,   TQ_x_16, 500}, \
+        {2,   TQ_x_20, 800}, \
+        {2,   TQ_x_16, 1000}
+    #elif CO_FSYS == 72000
+        #define CO_CANbitRateDataInitializers  \
+        {40,  TQ_x_18, 0}, \
+        {40,  TQ_x_18, 0}, \
+        {40,  TQ_x_18, 50}, \
+        {16,  TQ_x_18, 125}, \
+        {8,   TQ_x_18, 250}, \
+        {4,   TQ_x_18, 500}, \
+        {3,   TQ_x_15, 800}, \
+        {2,   TQ_x_18, 1000}
+    #elif CO_FSYS == 80000
+        #define CO_CANbitRateDataInitializers  \
+        {40,  TQ_x_20, 0}, \
+        {40,  TQ_x_20, 0}, \
+        {40,  TQ_x_20, 50}, \
+        {16,  TQ_x_20, 125}, \
+        {8,   TQ_x_20, 250}, \
+        {4,   TQ_x_20, 500}, \
+        {2,   TQ_x_25, 800}, \
+        {2,   TQ_x_20, 1000}
+    #else
+        #error define_CO_FSYS CO_FSYS not supported
+    #endif
+#endif /* CO_CANbitRateDataInitializers */
+
+
+const CO_CANbitRateData_t CO_CANbitRateData[] = {
+    CO_CANbitRateDataInitializers
+};
+
+bool_t CO_LSSchkBitrateCallback(void *object, uint16_t bitRate) {
+    (void)object;
+    uint32_t i;
+
+    for (i=0; i<(sizeof(CO_CANbitRateData)/sizeof(CO_CANbitRateData[0])); i++) {
+        if (CO_CANbitRateData[i].bitrate == bitRate && bitRate > 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 
 /******************************************************************************/
@@ -63,6 +249,8 @@ CO_ReturnError_t CO_CANmodule_init(
         uint16_t                CANbitRate)
 {
     uint16_t i;
+    const CO_CANbitRateData_t *CANbitRateData = NULL;
+
 
     /* verify arguments */
     if(CANmodule==NULL || rxArray==NULL || txArray==NULL){
@@ -99,7 +287,15 @@ CO_ReturnError_t CO_CANmodule_init(
     CANmodule->CANrxFifoIndex = CO_CAN_RX_FIFO_INDEX;
 
     /* Configure CAN timing */
-
+    for (i=0; i<(sizeof(CO_CANbitRateData)/sizeof(CO_CANbitRateData[0])); i++) {
+        if (CO_CANbitRateData[i].bitrate == CANbitRate) {
+            CANbitRateData = &CO_CANbitRateData[i];
+            break;
+        }
+    }
+    if (CANbitRate == 0 || CANbitRateData == NULL) {
+        return CO_ERROR_ILLEGAL_BAUDRATE;
+    }
     can_init(CANmodule->CANport,
             false,           /* TTCM: Time triggered comm mode? */
             true,            /* ABOM: Automatic bus-off management? */
@@ -107,10 +303,10 @@ CO_ReturnError_t CO_CANmodule_init(
             false,           /* NART: No automatic retransmission? */
             false,           /* RFLM: Receive FIFO locked mode? */
             false,           /* TXFP: Transmit FIFO priority? */
-            PARM_SJW,
-            PARM_TS1,
-            PARM_TS2,
-            PARM_BRP,
+            CANbitRateData->SJW,
+            CANbitRateData->phSeg1,
+            CANbitRateData->phSeg2,
+            CANbitRateData->BRP,
             false,
             false);
 
@@ -171,8 +367,13 @@ CO_ReturnError_t CO_CANrxBufferInit(
         buffer->mask = (mask & 0x07FFU) | 0x0800U;
 
         /* Set CAN hardware module filter and mask. */
-        if(CANmodule->useCANrxFilters){
-
+        if(CANmodule->useCANrxFilters) {
+        //    can_filter_id_mask_32bit_init(
+        //        index,     /* Filter ID */
+        //        CANmodule->CANport,     /* CAN ID */
+        //        buffer->ident,     /* CAN ID mask */
+        //        buffer->mask,     /* FIFO assignment (here: FIFO0) */
+        //        true); /* Enable the filter. */
         }
     }
     else{
@@ -345,7 +546,6 @@ void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason){
 
     /* receive interrupt */
     if(reason == 0){
-        uint32_t id;
         bool ext, rtr;
         uint8_t fmi;
         
@@ -357,7 +557,7 @@ void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason){
 
         rcvMsgIdent = rcvMsg.ident;
 
-        can_receive(CANmodule->CANport, CANmodule->CANrxFifoIndex, true, &rcvMsg.ident, &ext, &rtr, &fmi, &rcvMsg.DLC, &rcvMsg.data, NULL);
+        can_receive(CANmodule->CANport, CANmodule->CANrxFifoIndex, true, &rcvMsg.ident, &ext, &rtr, &fmi, &rcvMsg.DLC, rcvMsg.data, NULL);
 
         if(CANmodule->useCANrxFilters){
             /* CAN module filters are used. Message with known 11-bit identifier has */
