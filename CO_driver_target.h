@@ -92,6 +92,7 @@ typedef struct {
     uint32_t ident;
     uint8_t DLC;
     uint8_t data[8];
+    bool rtr;
     volatile bool_t bufferFull;
     volatile bool_t syncFlag;
 } CO_CANtx_t;

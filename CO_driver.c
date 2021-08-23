@@ -416,6 +416,8 @@ CO_CANtx_t *CO_CANtxBufferInit(
                       | ((uint32_t)(((uint32_t)noOfBytes & 0xFU) << 12U))
                       | ((uint32_t)(rtr ? 0x8000U : 0U));
 
+        buffer->DLC = noOfBytes;
+        buffer->rtr = rtr;
         buffer->bufferFull = false;
         buffer->syncFlag = syncFlag;
     }
@@ -439,7 +441,7 @@ CO_ReturnError_t CO_CANsend(CO_CANmodule_t *CANmodule, CO_CANtx_t *buffer){
 
     CO_LOCK_CAN_SEND(CANmodule);
     /* Try sending message right away, if any of mailboxes are available */
-    if(can_transmit(CANmodule->CANport, buffer->ident, false, false, 8, buffer->data) != -1){
+    if(can_transmit(CANmodule->CANport, buffer->ident, false, buffer->rtr, buffer->DLC, buffer->data) != -1){
         CANmodule->bufferInhibitFlag = buffer->syncFlag;
     }
     /* if no buffer is free, message will be sent by interrupt */
