@@ -30,14 +30,6 @@
 
 //#include <libopencm3/stm32/flash.h>
 
-typedef struct {
-    uint8_t   BRP;      /* (1...64) Baud Rate Prescaler */
-    uint8_t   SJW;      /* (1...4) SJW time */
-    uint8_t   PROP;     /* (1...8) PROP time */
-    uint8_t   phSeg1;   /* (1...8) Phase Segment 1 time */
-    uint8_t   phSeg2;   /* (1...8) Phase Segment 2 time */
-    uint16_t  bitrate;  /* bitrate in kbps */
-} CO_CANbitRateData_t;
 
 
 #ifndef CO_CANbitRateDataInitializers
@@ -205,6 +197,14 @@ typedef struct {
     #endif
 #endif /* CO_CANbitRateDataInitializers */
 
+typedef struct {
+    uint8_t   BRP;      /* (1...64) Baud Rate Prescaler */
+    uint8_t   SJW;      /* (1...4) SJW time */
+    uint8_t   PROP;     /* (1...8) PROP time */
+    uint8_t   phSeg1;   /* (1...8) Phase Segment 1 time */
+    uint8_t   phSeg2;   /* (1...8) Phase Segment 2 time */
+    uint16_t  bitrate;  /* bitrate in kbps */
+} CO_CANbitRateData_t;
 
 const CO_CANbitRateData_t CO_CANbitRateData[] = {
     CO_CANbitRateDataInitializers
@@ -265,7 +265,7 @@ CO_ReturnError_t CO_CANmodule_init(
     CANmodule->txSize = txSize;
     CANmodule->CANerrorStatus = 0;
     CANmodule->CANnormal = false;
-    CANmodule->useCANrxFilters = (rxSize <= 32U) ? true : false;/* microcontroller dependent */
+    CANmodule->useCANrxFilters = false;//(rxSize <= 32U) ? true : false;/* microcontroller dependent */
     CANmodule->bufferInhibitFlag = false;
     CANmodule->firstCANtxMessage = true;
     CANmodule->CANtxCount = 0U;
@@ -296,20 +296,31 @@ CO_ReturnError_t CO_CANmodule_init(
     if (CANbitRate == 0 || CANbitRateData == NULL) {
         return CO_ERROR_ILLEGAL_BAUDRATE;
     }
-    can_init(CANmodule->CANport,
+    if (can_init(CANmodule->CANport,
             false,           /* TTCM: Time triggered comm mode? */
             true,            /* ABOM: Automatic bus-off management? */
             true,            /* AWUM: Automatic wakeup mode? */
             false,           /* NART: No automatic retransmission? */
             false,           /* RFLM: Receive FIFO locked mode? */
             false,           /* TXFP: Transmit FIFO priority? */
-            CANbitRateData->SJW,
-            CANbitRateData->phSeg1,
-            CANbitRateData->phSeg2,
+            (CANbitRateData->SJW - 1) << CAN_BTR_SJW_SHIFT,
+            (CANbitRateData->phSeg1 + CANbitRateData->PROP - 1) << CAN_BTR_TS1_SHIFT,
+            (CANbitRateData->phSeg2 - 1) << CAN_BTR_TS2_SHIFT,
             CANbitRateData->BRP,
             false,
-            false);
+            false) != 0) {
+        return CO_ERROR_INVALID_STATE;
+    }
 
+	/* CAN filter 0 init. */
+	can_filter_id_mask_32bit_init(
+				0,     /* Filter ID */
+				0,     /* CAN ID */
+				0,     /* CAN ID mask */
+				0,     /* FIFO assignment (here: FIFO0) */
+				true); /* Enable the filter. */
+                
+    can_enable_irq(CAN1, CAN_IER_FMPIE0);   
     /* Configure CAN module hardware filters */
     if(CANmodule->useCANrxFilters){
         /* CAN module filters are used, they will be configured with */
@@ -428,7 +439,7 @@ CO_ReturnError_t CO_CANsend(CO_CANmodule_t *CANmodule, CO_CANtx_t *buffer){
 
     CO_LOCK_CAN_SEND(CANmodule);
     /* Try sending message right away, if any of mailboxes are available */
-    if(can_transmit(CANmodule->CANport, buffer->ident, false, false, buffer->DLC, buffer->data) != -1){
+    if(can_transmit(CANmodule->CANport, buffer->ident, false, false, 8, buffer->data) != -1){
         CANmodule->bufferInhibitFlag = buffer->syncFlag;
     }
     /* if no buffer is free, message will be sent by interrupt */
@@ -536,57 +547,52 @@ void CO_CANmodule_process(CO_CANmodule_t *CANmodule) {
 
 
 /******************************************************************************/
-typedef struct {
-    uint32_t ident;
-    uint8_t DLC;
-    uint8_t data[8];
-} CO_CANrxMsg_t;
-
-void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason){
+void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason, uint8_t msgcount){
 
     /* receive interrupt */
     if(reason == 0){
-        bool ext, rtr;
-        uint8_t fmi;
-        
-        CO_CANrxMsg_t rcvMsg;      /* pointer to received message in CAN module */
-        uint16_t index;             /* index of received message */
-        uint32_t rcvMsgIdent;       /* identifier of the received message */
-        CO_CANrx_t *buffer = NULL;  /* receive message buffer from CO_CANmodule_t object. */
-        bool_t msgMatched = false;
+        while ( msgcount-- > 0 ) {
+            bool ext, rtr;
+            uint8_t fmi;
+            
+            CO_CANrxMsg_t rcvMsg;      /* pointer to received message in CAN module */
+            uint16_t index;             /* index of received message */
+            uint32_t rcvMsgIdent;       /* identifier of the received message */
+            CO_CANrx_t *buffer = NULL;  /* receive message buffer from CO_CANmodule_t object. */
+            bool_t msgMatched = false;
 
-        rcvMsgIdent = rcvMsg.ident;
 
-        can_receive(CANmodule->CANport, CANmodule->CANrxFifoIndex, true, &rcvMsg.ident, &ext, &rtr, &fmi, &rcvMsg.DLC, rcvMsg.data, NULL);
+            can_receive(CANmodule->CANport, CANmodule->CANrxFifoIndex, true, &rcvMsg.ident, &ext, &rtr, &fmi, &rcvMsg.DLC, rcvMsg.data, NULL);
 
-        if(CANmodule->useCANrxFilters){
-            /* CAN module filters are used. Message with known 11-bit identifier has */
-            /* been received */
-            index = 0;  /* get index of the received message here. Or something similar */
-            if(index < CANmodule->rxSize){
-                buffer = &CANmodule->rxArray[index];
-                /* verify also RTR */
-                if(((rcvMsgIdent ^ buffer->ident) & buffer->mask) == 0U){
-                    msgMatched = true;
+            if(CANmodule->useCANrxFilters){
+                /* CAN module filters are used. Message with known 11-bit identifier has */
+                /* been received */
+                index = 0;  /* get index of the received message here. Or something similar */
+                if(index < CANmodule->rxSize){
+                    buffer = &CANmodule->rxArray[index];
+                    /* verify also RTR */
+                    if(((rcvMsg.ident ^ buffer->ident) & buffer->mask) == 0U){
+                        msgMatched = true;
+                    }
                 }
             }
-        }
-        else{
-            /* CAN module filters are not used, message with any standard 11-bit identifier */
-            /* has been received. Search rxArray form CANmodule for the same CAN-ID. */
-            buffer = &CANmodule->rxArray[0];
-            for(index = CANmodule->rxSize; index > 0U; index--){
-                if(((rcvMsgIdent ^ buffer->ident) & buffer->mask) == 0U){
-                    msgMatched = true;
-                    break;
+            else{
+                /* CAN module filters are not used, message with any standard 11-bit identifier */
+                /* has been received. Search rxArray form CANmodule for the same CAN-ID. */
+                buffer = &CANmodule->rxArray[0];
+                for(index = CANmodule->rxSize; index > 0U; index--){
+                    if(((rcvMsg.ident ^ buffer->ident) & buffer->mask) == 0U){
+                        msgMatched = true;
+                        break;
+                    }
+                    buffer++;
                 }
-                buffer++;
             }
-        }
 
-        /* Call specific function, which will process the message */
-        if(msgMatched && (buffer != NULL) && (buffer->CANrx_callback != NULL)){
-            buffer->CANrx_callback(buffer->object, &rcvMsg);
+            /* Call specific function, which will process the message */
+            if(msgMatched && (buffer != NULL) && (buffer->CANrx_callback != NULL)){
+                buffer->CANrx_callback(buffer->object, &rcvMsg);
+            }
         }
 
         /* Clear interrupt flag */

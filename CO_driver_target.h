@@ -51,7 +51,7 @@ extern "C" {
  * For more information see file CO_config.h. */
 #define CO_CAN_INTERFACE CAN1
 #define CO_CAN_RX_FIFO_INDEX 0
-#define CO_FSYS 36000
+#define CO_FSYS 72000
 
 /* Basic definitions. If big endian, CO_SWAP_xx macros must swap bytes. */
 #define CO_LITTLE_ENDIAN
@@ -65,11 +65,19 @@ typedef uint_fast8_t            bool_t;
 typedef float                   float32_t;
 typedef double                  float64_t;
 
+typedef struct {
+    uint32_t ident;
+    uint8_t DLC;
+    uint8_t data[8];
+} CO_CANrxMsg_t;
+
 
 /* Access to received CAN message */
-#define CO_CANrxMsg_readIdent(msg) ((uint16_t)0)
-#define CO_CANrxMsg_readDLC(msg)   ((uint8_t)0)
-#define CO_CANrxMsg_readData(msg)  ((uint8_t *)NULL)
+/* Access to received CAN message */
+#define CO_CANrxMsg_readIdent(msg) ((uint16_t)((CO_CANrxMsg_t *)msg)->ident)
+#define CO_CANrxMsg_readDLC(msg) ((uint8_t)((CO_CANrxMsg_t *)msg)->DLC)
+#define CO_CANrxMsg_readData(msg) ((uint8_t *)((CO_CANrxMsg_t *)msg)->data)
+
 
 /* Received message object */
 typedef struct {
@@ -142,7 +150,7 @@ typedef struct {
 bool_t CO_LSSchkBitrateCallback(void *object, uint16_t bitRate);
 
 /* Function called from CAN receive interrupt handler */
-void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason);
+void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason, uint8_t msgcount);
 
 #ifdef __cplusplus
 }
