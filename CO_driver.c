@@ -225,6 +225,7 @@ bool_t CO_LSSchkBitrateCallback(void *object, uint16_t bitRate) {
 
 /******************************************************************************/
 void CO_CANsetConfigurationMode(void *CANptr){
+    (void) CANptr; /* unused */
     can_reset(CO_CAN_INTERFACE);
     /* Put CAN module in configuration mode */
 }
@@ -559,7 +560,6 @@ void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason, uint8_t msgcount
             
             CO_CANrxMsg_t rcvMsg;      /* pointer to received message in CAN module */
             uint16_t index;             /* index of received message */
-            uint32_t rcvMsgIdent;       /* identifier of the received message */
             CO_CANrx_t *buffer = NULL;  /* receive message buffer from CO_CANmodule_t object. */
             bool_t msgMatched = false;
 

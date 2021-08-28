@@ -39,6 +39,16 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 
+/* Stack configuration override default values.
+ * For more information see file CO_config.h. */
+#define CO_CAN_INTERFACE CAN1
+#define CO_CAN_RX_FIFO_INDEX 0
+#define CO_FSYS 72000
+
+/* 72 / 8 => 9000000 counts per second,  */
+#define SYSTICKS_PER_MS CO_FSYS / 8
+
+
 #ifdef CO_DRIVER_CUSTOM
 #include "CO_driver_custom.h"
 #endif
@@ -47,11 +57,6 @@
 extern "C" {
 #endif
 
-/* Stack configuration override default values.
- * For more information see file CO_config.h. */
-#define CO_CAN_INTERFACE CAN1
-#define CO_CAN_RX_FIFO_INDEX 0
-#define CO_FSYS 72000
 
 /* Basic definitions. If big endian, CO_SWAP_xx macros must swap bytes. */
 #define CO_LITTLE_ENDIAN
@@ -119,11 +124,12 @@ typedef struct {
 /* Data storage object for one entry */
 typedef struct {
     void *addr;
+    void *addrFlash;
     size_t len;
     uint8_t subIndexOD;
     uint8_t attr;
-    /* Additional variables (target specific) */
-    void *addrNV;
+    uint8_t index;     // index within entries array
+    void *storage; // pointer to the storage
 } CO_storage_entry_t;
 
 
