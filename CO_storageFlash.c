@@ -305,6 +305,7 @@ uint8_t CO_flash_erase_entry(CO_storage_entry_t *entry)
 
 CO_ReturnError_t CO_flash_generate_crc(CO_storage_entry_t *entry)
 {
+	(void) entry; /* unused */
 	return 1;
 }
 

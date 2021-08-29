@@ -38,6 +38,7 @@
 #include <libopencm3/stm32/can.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
+#include <libopencm3/cm3/scb.h>
 
 /* Stack configuration override default values.
  * For more information see file CO_config.h. */
@@ -157,7 +158,8 @@ typedef struct {
 bool_t CO_LSSchkBitrateCallback(void *object, uint16_t bitRate);
 
 /* Function called from CAN receive interrupt handler */
-void CO_CANinterrupt(CO_CANmodule_t *CANmodule, uint8_t reason, uint8_t msgcount);
+void CO_CANRxInterrupt(CO_CANmodule_t *CANmodule);
+void CO_CANTxInterrupt(CO_CANmodule_t *CANmodule);
 
 #ifdef __cplusplus
 }
