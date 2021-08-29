@@ -27,7 +27,7 @@
 
 #include "storage/CO_storage.h"
 
-#if ((CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE) || defined CO_DOXYGEN
+#if ((CO_CONFIG_STORAGE)&CO_CONFIG_STORAGE_ENABLE) || defined CO_DOXYGEN
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,20 +44,20 @@ extern "C" {
  */
 
 CO_ReturnError_t CO_storageFlash_init(CO_storage_t *storage,
-																			CO_CANmodule_t *CANmodule,
-																			OD_entry_t *OD_1010_StoreParameters,
-																			OD_entry_t *OD_1011_RestoreDefaultParam,
-																			CO_storage_entry_t *entries,
-																			uint8_t entriesCount,
-																			uint32_t *storageInitError);
+                                      CO_CANmodule_t *CANmodule,
+                                      OD_entry_t *OD_1010_StoreParameters,
+                                      OD_entry_t *OD_1011_RestoreDefaultParam,
+                                      CO_storage_entry_t *entries,
+                                      uint8_t entriesCount,
+                                      uint32_t *storageInitError);
 
 void CO_storageFlash_auto_process(CO_storage_t *storage);
-
 
 ODR_t storeFlash(CO_storage_entry_t *entry, CO_CANmodule_t *CANmodule);
 ODR_t restoreFlash(CO_storage_entry_t *entry, CO_CANmodule_t *CANmodule);
 
-CO_ReturnError_t CO_flash_read_all_entries(CO_storage_entry_t *entries, uint8_t entriesCount);
+CO_ReturnError_t CO_flash_read_all_entries(CO_storage_entry_t *entries,
+                                           uint8_t entriesCount);
 
 CO_ReturnError_t CO_flash_write_entry(CO_storage_entry_t *entry);
 
@@ -74,4 +74,3 @@ CO_ReturnError_t CO_flash_write(uint8_t *address, uint8_t *data, uint16_t len);
 #endif /* (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE */
 
 #endif /* CO_STORAGE_BLANK_H */
-
