@@ -5,8 +5,8 @@
  *
  * @file        CO_driver.c
  * @ingroup     CO_driver
- * @author      Janez Paternoster
- * @copyright   2004 - 2020 Janez Paternoster
+ * @author      Yaroslaff Fedin
+ * @copyright   2004 - 2020 Yaroslaff Fedin
  *
  * This file is part of CANopenNode, an opensource CANopen Stack.
  * Project home page is <https://github.com/CANopenNode/CANopenNode>.

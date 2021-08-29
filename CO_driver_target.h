@@ -2,8 +2,8 @@
  * Device and application specific definitions for CANopenNode.
  *
  * @file        CO_driver_target.h
- * @author      Janez Paternoster
- * @copyright   2021 Janez Paternoster
+ * @author      Yaroslaff Fedin
+ * @copyright   2021 Yaroslaff Fedin
  *
  * This file is part of CANopenNode, an opensource CANopen Stack.
  * Project home page is <https://github.com/CANopenNode/CANopenNode>.

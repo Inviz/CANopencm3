@@ -2,8 +2,8 @@
  * CANopen data storage object for storing data into block device (flash)
  *
  * @file        CO_storageFlash.c
- * @author      Janez Paternoster
- * @copyright   2021 Janez Paternoster
+ * @author      Yaroslaff Fedin
+ * @copyright   2021 Yaroslaff Fedin
  *
  * This file is part of CANopenNode, an opensource CANopen Stack.
  * Project home page is <https://github.com/CANopenNode/CANopenNode>.
