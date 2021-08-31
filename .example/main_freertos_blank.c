@@ -20,8 +20,6 @@ extern void initialise_monitor_handles(void);
 #define INCLUDE_vTaskSuspend 1
 #define INCLUDE_xTaskResumeFromISR 1
 
-#define SEMIHOSTING_ENABLE
-
 #include "CANopen.h"
 
 #include "CO_storageFlash.h"
@@ -68,13 +66,6 @@ TaskHandle_t TaskCANOpenControlHandle;
 TaskHandle_t TaskCANOpenProcessingHandle;
 TaskHandle_t TaskCANOpenMainlineHandle;
 
-
-static uint32_t ticks_since(TickType_t *last_tick) {
-    TickType_t current_tick = xTaskGetTickCount();
-    uint32_t tick_diff = (current_tick - *last_tick);
-    *last_tick = current_tick;
-    return tick_diff;
-}
 
 
 SemaphoreHandle_t TaskMainlineSemaphore = NULL;
@@ -123,16 +114,16 @@ static CO_ReturnError_t initialize_memory(void) {
         return CO_ERROR_OUT_OF_MEMORY;
     } else {
         if (heapMemoryUsed == 0) {
-            log_printf("CANopenNode - Using static memory\n", (unsigned int)heapMemoryUsed);
+            log_printf("Config - Static memory\n", (unsigned int)heapMemoryUsed);
         } else {
-            log_printf("CANopenNode - Ullocated %u bytes for CANopen objects\n", (unsigned int)heapMemoryUsed);
+            log_printf("Config - On heap (%ubytes)\n", (unsigned int)heapMemoryUsed);
         }
     }
     return CO_ERROR_NO;
 }
 
 static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
-    log_printf("CANopenNode - Initialize storage...\n");
+    log_printf("Config - Storage...\n");
 
     CO_ReturnError_t err;
 
@@ -151,7 +142,7 @@ static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
 static CO_ReturnError_t initialize_communication(void) {
     CO_ReturnError_t err;
 
-    log_printf("CANopenNode - Reset communication...\n");
+    log_printf("Config - Communication...\n");
     /* Enter CAN configuration. */
     CO->CANmodule->CANnormal = false;
     CO_CANsetConfigurationMode((void *)&CANptr);
@@ -288,6 +279,7 @@ static void TaskCANOpenControl(void *pvParameters) {
     (void)pvParameters; /* unused */
     uint32_t reset = CO_RESET_COMM;
 
+    log_printf("Config - Device settings...\n");
     // Initial device setup
     configure_gpio();
     configure_can();
@@ -295,15 +287,17 @@ static void TaskCANOpenControl(void *pvParameters) {
 
     for (;;) {
         fflush(stdout);
+        log_printf("System - Reset sequence %i...\n", CO_RESET_COMM);
+
         // Full device reset
-        if (reset >= CO_RESET_COMM) {
+        if (reset >= CO_RESET_COMM && CO != NULL) {
+            log_printf("Config - Unloading...\n");
             CO_CANsetConfigurationMode((void *)&CANptr);
             CO_delete(CO);
         }
 
         // Reset communications: storage, canopen, communication
         if (reset == CO_RESET_COMM) {
-            log_printf("CANopenNode - Resetting communication...\n");
             uint32_t storageInitError = 0;
             if (initialize_memory() != CO_ERROR_NO ||                   /* Allocate memory*/
                 initialize_storage(&storageInitError) != CO_ERROR_NO || /* Read up the storage */
@@ -312,17 +306,18 @@ static void TaskCANOpenControl(void *pvParameters) {
                 initialize_callbacks(CO) != CO_ERROR_NO) {               /* Subscribe to events*/
                 reset = CO_RESET_APP;
             }
+            log_printf("         #%i @ %ikbps\n", CO_config_communication.nodeId, CO_config_communication.bitRate);
         }
 
         if (reset >= CO_RESET_APP) {
-            log_printf("CANopenNode finished\n");
+            printf("System - Resetting...\n");
             scb_reset_system();
         }
 
+        log_printf("System - Running...\n");
         // Wait for reset notification
-        log_printf("CANopenNode - Running...\n");
         xTaskNotifyWaitIndexed(0,              /* Wait for 0th notification. */
-                               0x00,           /* Don't clear any notification bits on entry. */
+                               0xffffffffUL,   /* Clear any notification bits on entry. */
                                0x00,           /* Reset the notification value to 0 on exit. */
                                &reset,         /* Retrieve reset command */
                                portMAX_DELAY); /* Block indefinitely. */
@@ -335,14 +330,19 @@ static void TaskCANOpenMainline(void *pvParameters) {
     TaskMainlineSemaphore = xSemaphoreCreateBinary();
     TickType_t last_tick = xTaskGetTickCount();
     while (true) {
+        TickType_t current_tick = xTaskGetTickCount();
         uint32_t timeout = 2000000000;
 
-        CO_NMT_reset_cmd_t reset = CO_process(CO, false, ticks_since(&last_tick) * US_PER_TICK, &timeout);
+        CO_NMT_reset_cmd_t reset = CO_process(CO, false, (current_tick - last_tick) * US_PER_TICK, &timeout);
+
+        LED_red = CO_LED_RED(CO->LEDs, CO_LED_CANopen);
+        LED_green = CO_LED_GREEN(CO->LEDs, CO_LED_CANopen);
 
         if (reset != CO_RESET_NOT) {
             xTaskNotifyIndexed(TaskCANOpenControlHandle, 0, reset, eSetValueWithOverwrite);
         }
 
+        last_tick = current_tick;
         xSemaphoreTake( TaskMainlineSemaphore, timeout / US_PER_TICK);
     }
 }
@@ -352,51 +352,49 @@ static void TaskCANOpenProcessing(void *pvParameters) {
     (void)pvParameters; /* unused */
     TaskProcessingSemaphore = xSemaphoreCreateBinary();
     TickType_t last_tick = xTaskGetTickCount();
+    TickType_t last_storage_tick = last_tick;
     while (true) {
-        uint32_t time_difference_us = ticks_since(&last_tick) * US_PER_TICK;
+        TickType_t current_tick = xTaskGetTickCount();
         uint32_t timeout = 2000000000;
 
-        // Run basic tasks every ~1ms
         CO_LOCK_OD(co->CANmodule);
         if (!CO->nodeIdUnconfigured && CO->CANmodule->CANnormal) {
             bool_t syncWas = false;
 
 #if (CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE
-            syncWas = CO_process_SYNC(CO, time_difference_us, &timeout);
+            syncWas = CO_process_SYNC(CO, (current_tick - last_tick) * US_PER_TICK, &timeout);
 #endif
 #if (CO_CONFIG_PDO) & CO_CONFIG_RPDO_ENABLE
-            CO_process_RPDO(CO, syncWas, time_difference_us, &timeout);
+            CO_process_RPDO(CO, syncWas, (current_tick - last_tick) * US_PER_TICK, &timeout);
 #endif
 #if (CO_CONFIG_PDO) & CO_CONFIG_TPDO_ENABLE
-            CO_process_TPDO(CO, syncWas, time_difference_us, &timeout);
+            CO_process_TPDO(CO, syncWas, (current_tick - last_tick) * US_PER_TICK, &timeout);
 #endif
         }
         CO_UNLOCK_OD(co->CANmodule);
 
-        LED_red = CO_LED_RED(CO->LEDs, CO_LED_CANopen);
-        LED_green = CO_LED_GREEN(CO->LEDs, CO_LED_CANopen);
-
-        // wait for 1ms
-        xSemaphoreTake( TaskProcessingSemaphore, timeout / US_PER_TICK );
-
-        /* Run storage routine every 1000mss */
-        /*if (ticks_count++ > 1000) {
-            ticks_count = 0;
+        /* Thorttle autostorage to 1s */
+        if ((current_tick - last_storage_tick) * US_PER_TICK > 1000000) {
+            last_storage_tick = current_tick;
+            log_printf("CANopenNode - Autosaving...\n");
             CO_storageFlash_auto_process(&CO_storage);
-        }*/
+        }
+
+        last_tick = current_tick;
+        xSemaphoreTake( TaskProcessingSemaphore, timeout / US_PER_TICK );
     }
 }
 
 /* main ***********************************************************************/
 int main(void) {
-#ifdef SEMIHOSTING_ENABLE
     initialise_monitor_handles(); /* This Function MUST come before the first printf() */
-    printf("Hello, world!\n");
-#endif
+    printf("System - Starting...\n");
+
     xTaskCreate(TaskCANOpenControl, "COControl", 100, NULL, 3, &TaskCANOpenControlHandle);
     xTaskCreate(TaskCANOpenMainline, "COMainline", 50, NULL, 2, &TaskCANOpenMainlineHandle);
     xTaskCreate(TaskCANOpenProcessing, "COProcessing", 50, NULL, 1, &TaskCANOpenProcessingHandle);
     
+    printf("System - Starting tasks...\n");
     vTaskStartScheduler();
     for (;;)
         ;
@@ -404,9 +402,11 @@ int main(void) {
 }
 
 void usb_lp_can_rx0_isr(void) {
+    gpio_toggle(GPIOC, GPIO13);
     CO_CANRxInterrupt(CO->CANmodule);
 }
 
 void usb_hp_can_tx_isr(void) {
+    gpio_toggle(GPIOC, GPIO13);
     CO_CANTxInterrupt(CO->CANmodule);
 }
