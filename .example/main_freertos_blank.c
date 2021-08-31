@@ -2,7 +2,7 @@
 /* semihosting Initializing */
 extern void initialise_monitor_handles(void);
 
-#define printf(macropar_message, ...) printf(macropar_message, ##__VA_ARGS__)
+#define log_printf(macropar_message, ...) printf(macropar_message, ##__VA_ARGS__)
 
 /* default values for CO_CANopenInit() */
 #define NMT_CONTROL                                                                                                    \
@@ -29,17 +29,13 @@ extern void initialise_monitor_handles(void);
 #include "semphr.h"
 #include "task.h"
 
-#ifdef CO_USE_APPLICATION
-#include "CO_application.h"
-#endif
-
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
     (void)xTask; /* unused*/
     printf("System - Stack overflow! %s", pcTaskName);
 }
 
 typedef struct {
-    uint16_t nodeId;  /* read from dip switches or nonvolatile memory, configurable
+    uint8_t nodeId;  /* read from dip switches or nonvolatile memory, configurable
                         by LSS slave */
     uint16_t bitRate; /* read from dip switches or nonvolatile memory,
                          configurable by LSS slave */
@@ -119,7 +115,7 @@ static CO_ReturnError_t initialize_memory(void) {
         return CO_ERROR_OUT_OF_MEMORY;
     } else {
         if (heapMemoryUsed == 0) {
-            printf("Config - Static memory\n", (unsigned int)heapMemoryUsed);
+            printf("Config - Static memory\n");
         } else {
             printf("Config - On heap (%ubytes)\n", (unsigned int)heapMemoryUsed);
         }
@@ -144,7 +140,8 @@ static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
     return CO_ERROR_NO;
 }
 
-bool_t LSSStoreConfigCallback(void *object, uint8_t id, uint16_t bitRate) {
+static bool_t LSSStoreConfigCallback(void *object, uint8_t id, uint16_t bitRate) {
+    (void) object; /* unused */
     printf("Config - Store LSS #%i @ %ikbps...\n", id, bitRate);
     CO_config_communication.bitRate = bitRate;
     CO_config_communication.nodeId = id;
@@ -163,7 +160,7 @@ static CO_ReturnError_t initialize_communication(void) {
     /* Initialize CANopen driver */
     err = CO_CANinit(CO, CANptr, CO_config_communication.bitRate);
     if (err != CO_ERROR_NO) {
-        printf("Error: CAN initialization failed: %d\n", err);
+        printf("Error: CAN initialization failed: %d\n", (int) err);
         return err;
     }
 
@@ -177,7 +174,7 @@ static CO_ReturnError_t initialize_communication(void) {
     CO_LSSslave_initCfgStoreCallback(CO->LSSslave, NULL, LSSStoreConfigCallback);
 
     if (err != CO_ERROR_NO) {
-        printf("Error: LSS slave initialization failed: %d\n", err);
+        printf("Error: LSS slave initialization failed: %d\n", (int) err);
         return err;
     }
 
@@ -185,16 +182,20 @@ static CO_ReturnError_t initialize_communication(void) {
 }
 
 static void TaskCANOpenMainlineCallback(void *object) {
+    (void) object;/* unused */
     static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xSemaphoreGiveFromISR(TaskMainlineSemaphore, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-static void TaskCANOpenProcessingCallback(void *object) {
-    static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(TaskProcessingSemaphore, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-}
+#if (CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE || (CO_CONFIG_PDO) & CO_CONFIG_RPDO_ENABLE
+    static void TaskCANOpenProcessingCallback(void *object) {
+        (void) object;/* unused */
+        static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(TaskProcessingSemaphore, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
+#endif
 
 #ifdef CO_USE_APPLICATION
 static CO_ReturnError_t initialize_app(uint32_t *appInitError) {
@@ -268,7 +269,7 @@ static CO_ReturnError_t initialize_canopen(uint32_t *errInfo) {
                          SDO_SRV_TIMEOUT_TIME, /* SDOserverTimeoutTime_ms */
                          SDO_CLI_TIMEOUT_TIME, /* SDOclientTimeoutTime_ms */
                          SDO_CLI_BLOCK,        /* SDOclientBlockTransfer */
-                         CO_config_communication.nodeId, &errInfo);
+                         CO_config_communication.nodeId, errInfo);
 
     if (err != CO_ERROR_NODE_ID_UNCONFIGURED_LSS) {
         return err;
@@ -288,7 +289,6 @@ static void TaskCANOpenControl(void *pvParameters) {
     configure_systick();
 
     for (;;) {
-        fflush(stdout);
         printf("System - Reset sequence %i...\n", CO_RESET_COMM);
 
         // Full device reset
@@ -313,7 +313,7 @@ static void TaskCANOpenControl(void *pvParameters) {
                            initialize_callbacks(CO);
 
             if (err != CO_ERROR_NO) {
-                printf("CANopen: Initialization faild failed: %d %i\n", err, initError || storageInitError);
+                printf("CANopen: Initialization faild failed: %i %i\n", (int) err, (int) (initError || storageInitError));
                 while (true) {
                 };
             }
@@ -401,6 +401,7 @@ static void TaskCANOpenProcessing(void *pvParameters) {
         CO_LOCK_OD(co->CANmodule);
         if (!CO->nodeIdUnconfigured && CO->CANmodule->CANnormal) {
             bool_t syncWas = false;
+            (void) syncWas; /* may be unused */
             uint32_t us_since_last_tick = (current_tick - last_tick) * US_PER_TICK;
 
 #if (CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE

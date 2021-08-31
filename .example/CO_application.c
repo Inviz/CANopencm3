@@ -9,6 +9,8 @@ CO_ReturnError_t app_programStart(uint16_t *bitRate,
                                   uint8_t *nodeId,
                                   uint32_t *errInfo)
 {
+  if (&bitRate == 0) *bitRate = 250;
+  if (&nodeId == 0) *nodeId = 0; // allow LSS config
   return 0;
 }
 

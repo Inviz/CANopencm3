@@ -204,7 +204,6 @@ int main (void){
         reset = CO_RESET_NOT;
 
         log_printf("CANopenNode - Running...\n");
-        fflush(stdout);
 
         uint32_t last_tick = systick_get_value();
         while(reset == CO_RESET_NOT){
