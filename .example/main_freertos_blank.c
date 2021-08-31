@@ -1,4 +1,4 @@
-#include <stdio.h>
+
 /* semihosting Initializing */
 extern void initialise_monitor_handles(void);
 
@@ -17,8 +17,10 @@ extern void initialise_monitor_handles(void);
 #define CO_GET_CO(obj) CO_##obj
 #define CO_GET_CNT(obj) OD_CNT_##obj
 
-#define INCLUDE_vTaskSuspend 1
-#define INCLUDE_xTaskResumeFromISR 1
+
+#ifdef SEMIHOSTING
+  #include <stdio.h>
+#endif
 
 #include "CANopen.h"
 
@@ -28,7 +30,10 @@ extern void initialise_monitor_handles(void);
 #include "OD.h"
 #include "task.h"
 
-
+void vApplicationStackOverflowHook( TaskHandle_t xTask, char * pcTaskName ) {
+    (void) xTask; /* unused*/
+    printf("System - Stack overflow! %s", pcTaskName);
+}
 
 typedef struct {
     uint16_t nodeId;  /* read from dip switches or nonvolatile memory, configurable
@@ -139,6 +144,14 @@ static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
     return CO_ERROR_NO;
 }
 
+
+bool_t LSSStoreConfigCallback(void *object, uint8_t id, uint16_t bitRate) {
+  log_printf("Config - Store LSS #%i @ %ikbps...\n", id, bitRate);
+  CO_config_communication.bitRate = bitRate;
+  CO_config_communication.nodeId = id;
+  return CO_flash_write_entry(&storageEntries[1]) == CO_ERROR_NO;
+}
+
 static CO_ReturnError_t initialize_communication(void) {
     CO_ReturnError_t err;
 
@@ -162,6 +175,8 @@ static CO_ReturnError_t initialize_communication(void) {
                                                 .serialNumber = OD_PERSIST_COMM.x1018_identity.serialNumber}};
 
     err = CO_LSSinit(CO, &lssAddress, &CO_config_communication.nodeId, &CO_config_communication.bitRate);
+    CO_LSSslave_initCfgStoreCallback(CO->LSSslave, NULL, LSSStoreConfigCallback);
+
     if (err != CO_ERROR_NO) {
         log_printf("Error: LSS slave initialization failed: %d\n", err);
         return err;
@@ -318,7 +333,7 @@ static void TaskCANOpenControl(void *pvParameters) {
         // Wait for reset notification
         xTaskNotifyWaitIndexed(0,              /* Wait for 0th notification. */
                                0xffffffffUL,   /* Clear any notification bits on entry. */
-                               0x00,           /* Reset the notification value to 0 on exit. */
+                               0xffffffffUL,           /* Reset the notification value to 0 on exit. */
                                &reset,         /* Retrieve reset command */
                                portMAX_DELAY); /* Block indefinitely. */
     }
@@ -331,7 +346,7 @@ static void TaskCANOpenMainline(void *pvParameters) {
     TickType_t last_tick = xTaskGetTickCount();
     while (true) {
         TickType_t current_tick = xTaskGetTickCount();
-        uint32_t timeout = 2000000000;
+        uint32_t timeout = 0xffffffffUL;
 
         CO_NMT_reset_cmd_t reset = CO_process(CO, false, (current_tick - last_tick) * US_PER_TICK, &timeout);
 
@@ -339,7 +354,9 @@ static void TaskCANOpenMainline(void *pvParameters) {
         LED_green = CO_LED_GREEN(CO->LEDs, CO_LED_CANopen);
 
         if (reset != CO_RESET_NOT) {
-            xTaskNotifyIndexed(TaskCANOpenControlHandle, 0, reset, eSetValueWithOverwrite);
+            if (xTaskNotifyIndexed(TaskCANOpenControlHandle, 0, reset, eSetValueWithOverwrite) == pdTRUE) {
+              taskYIELD();
+            }
         }
 
         last_tick = current_tick;
@@ -384,14 +401,14 @@ static void TaskCANOpenProcessing(void *pvParameters) {
         xSemaphoreTake( TaskProcessingSemaphore, timeout / US_PER_TICK );
     }
 }
-
 /* main ***********************************************************************/
 int main(void) {
+#ifdef SEMIHOSTING
     initialise_monitor_handles(); /* This Function MUST come before the first printf() */
     printf("System - Starting...\n");
-
-    xTaskCreate(TaskCANOpenControl, "COControl", 100, NULL, 3, &TaskCANOpenControlHandle);
-    xTaskCreate(TaskCANOpenMainline, "COMainline", 50, NULL, 2, &TaskCANOpenMainlineHandle);
+#endif
+    xTaskCreate(TaskCANOpenControl, "COControl", 200, NULL, 3, &TaskCANOpenControlHandle);
+    xTaskCreate(TaskCANOpenMainline, "COMainline", 150, NULL, 2, &TaskCANOpenMainlineHandle);
     xTaskCreate(TaskCANOpenProcessing, "COProcessing", 50, NULL, 1, &TaskCANOpenProcessingHandle);
     
     printf("System - Starting tasks...\n");

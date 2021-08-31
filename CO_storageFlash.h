@@ -25,6 +25,10 @@
 #ifndef CO_STORAGE_BLANK_H
 #define CO_STORAGE_BLANK_H
 
+#ifdef SEMIHOSTING
+  #include <stdio.h>
+#endif
+
 #include "storage/CO_storage.h"
 
 #if ((CO_CONFIG_STORAGE)&CO_CONFIG_STORAGE_ENABLE) || defined CO_DOXYGEN

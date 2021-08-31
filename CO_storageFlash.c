@@ -26,6 +26,10 @@
 // #include "CO_flash.h"
 #include <libopencm3/stm32/flash.h>
 
+#ifdef SEMIHOSTING
+  #include <stdio.h>
+#endif
+
 #include "301/crc16-ccitt.h"
 
 #if (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE
@@ -38,8 +42,8 @@
 #define CO_STORAGE_FLASH_SIZE 16384
 
 // use memory from the end of the device
-#define CO_STORAGE_FLASH_BASE_ADDRESS (void *)FLASH_BASE + CO_STORAGE_FLASH_DEVICE_SIZE - CO_STORAGE_FLASH_SIZE
-#define CO_STORAGE_FLASH_OOB_ADDRESS (void *)CO_STORAGE_FLASH_BASE_ADDRESS + CO_STORAGE_FLASH_DEVICE_SIZE
+#define CO_STORAGE_FLASH_BASE_ADDRESS ((void *)FLASH_BASE + CO_STORAGE_FLASH_DEVICE_SIZE - CO_STORAGE_FLASH_SIZE)
+#define CO_STORAGE_FLASH_OOB_ADDRESS ((void *)CO_STORAGE_FLASH_BASE_ADDRESS + CO_STORAGE_FLASH_DEVICE_SIZE)
 #define CO_STORAGE_FLASH_HEADER_SIZE sizeof(CO_storage_flash_record_t)
 #define CO_STORAGE_FLASH_UNDEFINED_CRC 0xFFFFFFFF
 /*
@@ -109,6 +113,7 @@ CO_ReturnError_t CO_storageFlash_init(CO_storage_t *storage, CO_CANmodule_t *CAN
 
 // scan all records in the storage, and use their last ever found value
 CO_ReturnError_t CO_flash_read_all_entries(CO_storage_entry_t *entries, uint8_t entriesCount) {
+    uint16_t records = 0;
     for (current_record_address = CO_STORAGE_FLASH_BASE_ADDRESS;
          current_record_address < CO_STORAGE_FLASH_OOB_ADDRESS;) {
         CO_storage_flash_record_t *record = (CO_storage_flash_record_t *)current_record_address;
@@ -117,12 +122,14 @@ CO_ReturnError_t CO_flash_read_all_entries(CO_storage_entry_t *entries, uint8_t 
         if (record->crc == CO_STORAGE_FLASH_UNDEFINED_CRC) {
             break;
         }
+        records++;
 
         // update entry with the last found value
         CO_storage_entry_t *entry = &entries[record->index];
         entry->addrFlash = record->len == 0 ? NULL : current_record_address;
         current_record_address += CO_STORAGE_FLASH_HEADER_SIZE + record->len;
     }
+    printf("Storage - %i records, %i / %i bytes written\n", records, current_record_address - CO_STORAGE_FLASH_BASE_ADDRESS, CO_STORAGE_FLASH_SIZE);
 
     // update length for all non-erased entries
     for (uint16_t i = 0; i < entriesCount; i++) {
@@ -146,6 +153,8 @@ static CO_ReturnError_t CO_flash_compact_storage(CO_storage_t *storage) {
     void *current_writing_address = CO_STORAGE_FLASH_BASE_ADDRESS;
 
     // determine how many pages dont need to be changed
+    printf("Storage - Compacting storage...\n");
+
     for (uint16_t i = 0; i < storage->entriesCount; i++) {
         CO_storage_entry_t *entry = &storage->entries[i];
         CO_storage_flash_record_t storage_record = {entry->index, CO_flash_generate_crc(entry), entry->len};
@@ -237,6 +246,7 @@ CO_ReturnError_t CO_flash_write_entry(CO_storage_entry_t *entry) {
         memcmp(entry->addrFlash + CO_STORAGE_FLASH_HEADER_SIZE, entry->addr, entry->len) == 0) {
           return CO_ERROR_NO;
     }
+    printf("Storage - Writing #%i entry, %i bytes...\n", entry->index, entry->len);
 
     // if there's no more room to append entry to, memory has to be compacted and
     // that will write the entry
@@ -257,6 +267,7 @@ uint8_t CO_flash_erase_entry(CO_storage_entry_t *entry) {
     if (memcmp(entry->addrFlash, (void *)&storage_record, CO_STORAGE_FLASH_HEADER_SIZE) == 0) {
         return CO_ERROR_NO;
     }
+    printf("Storage - Erasing #%i entry\n", entry->index);
     entry->addrFlash = current_record_address;
     current_record_address += CO_STORAGE_FLASH_HEADER_SIZE + entry->len;
     return CO_flash_write(entry->addrFlash, (uint8_t *)&storage_record, CO_STORAGE_FLASH_HEADER_SIZE);
