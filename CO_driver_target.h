@@ -45,6 +45,9 @@
 #define CO_CAN_RX_FIFO_INDEX 0
 #define CO_FSYS 72000
 
+
+#define CO_USE_APPLICATION
+
  /* Print debug info from some internal parts of the stack */
 
 /*#if (CO_CONFIG_DEBUG) & CO_CONFIG_DEBUG_COMMON

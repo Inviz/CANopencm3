@@ -2,7 +2,7 @@
 /* semihosting Initializing */
 extern void initialise_monitor_handles(void);
 
-#define log_printf(macropar_message, ...) printf(macropar_message, ##__VA_ARGS__)
+#define printf(macropar_message, ...) printf(macropar_message, ##__VA_ARGS__)
 
 /* default values for CO_CANopenInit() */
 #define NMT_CONTROL                                                                                                    \
@@ -17,21 +17,24 @@ extern void initialise_monitor_handles(void);
 #define CO_GET_CO(obj) CO_##obj
 #define CO_GET_CNT(obj) OD_CNT_##obj
 
-
 #ifdef SEMIHOSTING
-  #include <stdio.h>
+#include <stdio.h>
 #endif
 
 #include "CANopen.h"
 
 #include "CO_storageFlash.h"
 #include "FreeRTOS.h"
-#include "semphr.h"
 #include "OD.h"
+#include "semphr.h"
 #include "task.h"
 
-void vApplicationStackOverflowHook( TaskHandle_t xTask, char * pcTaskName ) {
-    (void) xTask; /* unused*/
+#ifdef CO_USE_APPLICATION
+#include "CO_application.h"
+#endif
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+    (void)xTask; /* unused*/
     printf("System - Stack overflow! %s", pcTaskName);
 }
 
@@ -47,7 +50,7 @@ CO_t *CO = NULL;     /* CANopen object */
 void *CANptr = NULL; /* CAN module address, user defined structure */
 
 /* Initial values for*/
-CO_config_communication_t CO_config_communication = {.nodeId = 4, .bitRate = 1000};
+CO_config_communication_t CO_config_communication = {.nodeId = 0, .bitRate = 1000};
 
 /* List of values to be stored in flash storage */
 CO_storage_t CO_storage;
@@ -71,11 +74,8 @@ TaskHandle_t TaskCANOpenControlHandle;
 TaskHandle_t TaskCANOpenProcessingHandle;
 TaskHandle_t TaskCANOpenMainlineHandle;
 
-
-
 SemaphoreHandle_t TaskMainlineSemaphore = NULL;
 SemaphoreHandle_t TaskProcessingSemaphore = NULL;
-
 
 static void configure_gpio(void) {
     rcc_clock_setup_in_hse_8mhz_out_72mhz();
@@ -115,20 +115,20 @@ static CO_ReturnError_t initialize_memory(void) {
     /* Allocate memory */
     CO = CO_new(NULL, &heapMemoryUsed);
     if (CO == NULL) {
-        log_printf("Error: Can't allocate memory\n");
+        printf("Error: Can't allocate memory\n");
         return CO_ERROR_OUT_OF_MEMORY;
     } else {
         if (heapMemoryUsed == 0) {
-            log_printf("Config - Static memory\n", (unsigned int)heapMemoryUsed);
+            printf("Config - Static memory\n", (unsigned int)heapMemoryUsed);
         } else {
-            log_printf("Config - On heap (%ubytes)\n", (unsigned int)heapMemoryUsed);
+            printf("Config - On heap (%ubytes)\n", (unsigned int)heapMemoryUsed);
         }
     }
     return CO_ERROR_NO;
 }
 
 static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
-    log_printf("Config - Storage...\n");
+    printf("Config - Storage...\n");
 
     CO_ReturnError_t err;
 
@@ -137,25 +137,24 @@ static CO_ReturnError_t initialize_storage(uint32_t *storageInitError) {
                                storageInitError);
 
     if (err != CO_ERROR_NO && err != CO_ERROR_DATA_CORRUPT) {
-        log_printf("Error: Storage %d\n", (int)*storageInitError);
+        printf("Error: Storage %d\n", (int)*storageInitError);
         return err;
     }
 
     return CO_ERROR_NO;
 }
 
-
 bool_t LSSStoreConfigCallback(void *object, uint8_t id, uint16_t bitRate) {
-  log_printf("Config - Store LSS #%i @ %ikbps...\n", id, bitRate);
-  CO_config_communication.bitRate = bitRate;
-  CO_config_communication.nodeId = id;
-  return CO_flash_write_entry(&storageEntries[1]) == CO_ERROR_NO;
+    printf("Config - Store LSS #%i @ %ikbps...\n", id, bitRate);
+    CO_config_communication.bitRate = bitRate;
+    CO_config_communication.nodeId = id;
+    return CO_flash_write_entry(&storageEntries[1]) == CO_ERROR_NO;
 }
 
 static CO_ReturnError_t initialize_communication(void) {
     CO_ReturnError_t err;
 
-    log_printf("Config - Communication...\n");
+    printf("Config - Communication...\n");
     /* Enter CAN configuration. */
     CO->CANmodule->CANnormal = false;
     CO_CANsetConfigurationMode((void *)&CANptr);
@@ -164,7 +163,7 @@ static CO_ReturnError_t initialize_communication(void) {
     /* Initialize CANopen driver */
     err = CO_CANinit(CO, CANptr, CO_config_communication.bitRate);
     if (err != CO_ERROR_NO) {
-        log_printf("Error: CAN initialization failed: %d\n", err);
+        printf("Error: CAN initialization failed: %d\n", err);
         return err;
     }
 
@@ -178,27 +177,33 @@ static CO_ReturnError_t initialize_communication(void) {
     CO_LSSslave_initCfgStoreCallback(CO->LSSslave, NULL, LSSStoreConfigCallback);
 
     if (err != CO_ERROR_NO) {
-        log_printf("Error: LSS slave initialization failed: %d\n", err);
+        printf("Error: LSS slave initialization failed: %d\n", err);
         return err;
     }
 
     return CO_ERROR_NO;
 }
 
-static void TaskCANOpenMainlineCallback(void* object) { 
-  static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  xSemaphoreGiveFromISR( TaskMainlineSemaphore, &xHigherPriorityTaskWoken );
-  portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+static void TaskCANOpenMainlineCallback(void *object) {
+    static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(TaskMainlineSemaphore, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-static void TaskCANOpenProcessingCallback(void* object) {
-  static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  xSemaphoreGiveFromISR( TaskProcessingSemaphore, &xHigherPriorityTaskWoken );
-  portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+static void TaskCANOpenProcessingCallback(void *object) {
+    static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(TaskProcessingSemaphore, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
+
+#ifdef CO_USE_APPLICATION
+static CO_ReturnError_t initialize_app(uint32_t *appInitError) {
+    return app_programStart(&CO_config_communication.bitRate, &CO_config_communication.nodeId, appInitError);
+}
+#endif
 
 static CO_ReturnError_t initialize_callbacks(CO_t *co) {
-  /* Mainline tasks */
+    /* Mainline tasks */
     if (CO_GET_CNT(EM) == 1) {
         CO_EM_initCallbackPre(co->em, NULL, TaskCANOpenMainlineCallback);
     }
@@ -225,9 +230,9 @@ static CO_ReturnError_t initialize_callbacks(CO_t *co) {
         CO_SDOclient_initCallbackPre(&co->SDOclient[i], NULL, TaskCANOpenMainlineCallback);
     }
 #endif
-for (int16_t i = 0; i < CO_GET_CNT(SDO_SRV); i++) {
-    CO_SDOserver_initCallbackPre(&co->SDOserver[i], NULL, TaskCANOpenMainlineCallback);
-}
+    for (int16_t i = 0; i < CO_GET_CNT(SDO_SRV); i++) {
+        CO_SDOserver_initCallbackPre(&co->SDOserver[i], NULL, TaskCANOpenMainlineCallback);
+    }
 #if (CO_CONFIG_LSS) & CO_CONFIG_LSS_MASTER
     CO_LSSmaster_initCallbackPre(co->LSSmaster, NULL, TaskCANOpenMainlineCallback);
 #endif
@@ -235,7 +240,7 @@ for (int16_t i = 0; i < CO_GET_CNT(SDO_SRV); i++) {
     CO_LSSslave_initCallbackPre(co->LSSslave, NULL, TaskCANOpenMainlineCallback);
 #endif
 
-  /* Processing tasks */
+    /* Processing tasks */
 #if (CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE
     if (CO_GET_CNT(SYNC) == 1) {
         CO_SYNC_initCallbackPre(co->SYNC, NULL, TaskCANOpenProcessingCallback);
@@ -249,9 +254,8 @@ for (int16_t i = 0; i < CO_GET_CNT(SDO_SRV); i++) {
     return CO_ERROR_NO;
 }
 
-static CO_ReturnError_t initialize_canopen(uint32_t storageInitError) {
+static CO_ReturnError_t initialize_canopen(uint32_t *errInfo) {
     CO_ReturnError_t err;
-    uint32_t errInfo = 0;
 
     err = CO_CANopenInit(CO,                   /* CANopen object */
                          NULL,                 /* alternate NMT */
@@ -265,27 +269,10 @@ static CO_ReturnError_t initialize_canopen(uint32_t storageInitError) {
                          SDO_CLI_TIMEOUT_TIME, /* SDOclientTimeoutTime_ms */
                          SDO_CLI_BLOCK,        /* SDOclientBlockTransfer */
                          CO_config_communication.nodeId, &errInfo);
-    if (err != CO_ERROR_NO && err != CO_ERROR_NODE_ID_UNCONFIGURED_LSS) {
-        if (err == CO_ERROR_OD_PARAMETERS) {
-            log_printf("Error: Object Dictionary entry 0x%X\n", (unsigned int)errInfo);
-        } else {
-            log_printf("Error: CANopen initialization failed: %d\n", err);
-        }
+
+    if (err != CO_ERROR_NODE_ID_UNCONFIGURED_LSS) {
         return err;
     }
-
-    /* Configure CANopen callbacks, etc */
-    if (!CO->nodeIdUnconfigured) {
-        if (storageInitError != 0) {
-            CO_errorReport(CO->em, CO_EM_NON_VOLATILE_MEMORY, CO_EMC_HARDWARE, storageInitError);
-        }
-    } else {
-        log_printf("CANopenNode - Node-id not initialized\n");
-    }
-
-    /* start CAN */
-    CO_CANsetNormalMode(CO->CANmodule);
-
     return CO_ERROR_NO;
 }
 
@@ -294,7 +281,7 @@ static void TaskCANOpenControl(void *pvParameters) {
     (void)pvParameters; /* unused */
     uint32_t reset = CO_RESET_COMM;
 
-    log_printf("Config - Device settings...\n");
+    printf("Config - Device settings...\n");
     // Initial device setup
     configure_gpio();
     configure_can();
@@ -302,11 +289,11 @@ static void TaskCANOpenControl(void *pvParameters) {
 
     for (;;) {
         fflush(stdout);
-        log_printf("System - Reset sequence %i...\n", CO_RESET_COMM);
+        printf("System - Reset sequence %i...\n", CO_RESET_COMM);
 
         // Full device reset
         if (reset >= CO_RESET_COMM && CO != NULL) {
-            log_printf("Config - Unloading...\n");
+            printf("Config - Unloading...\n");
             CO_CANsetConfigurationMode((void *)&CANptr);
             CO_delete(CO);
         }
@@ -314,26 +301,60 @@ static void TaskCANOpenControl(void *pvParameters) {
         // Reset communications: storage, canopen, communication
         if (reset == CO_RESET_COMM) {
             uint32_t storageInitError = 0;
-            if (initialize_memory() != CO_ERROR_NO ||                   /* Allocate memory*/
-                initialize_storage(&storageInitError) != CO_ERROR_NO || /* Read up the storage */
-                initialize_communication() != CO_ERROR_NO ||            /* Set up LSS */
-                initialize_canopen(storageInitError) != CO_ERROR_NO ||  /* Start canopen*/
-                initialize_callbacks(CO) != CO_ERROR_NO) {               /* Subscribe to events*/
-                reset = CO_RESET_APP;
+            uint32_t initError = 0;
+            uint32_t err = initialize_memory() ||
+#if (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE
+                           initialize_storage(&storageInitError) != CO_ERROR_NO ||
+#endif
+                           initialize_communication() || initialize_canopen(&initError) ||
+#ifdef CO_USE_APPLICATION
+                           initialize_app(&initError) ||
+#endif
+                           initialize_callbacks(CO);
+
+            if (err != CO_ERROR_NO) {
+                printf("CANopen: Initialization faild failed: %d %i\n", err, initError || storageInitError);
+                while (true) {
+                };
             }
-            log_printf("         #%i @ %ikbps\n", CO_config_communication.nodeId, CO_config_communication.bitRate);
+            printf("         #%i @ %ikbps\n", CO_config_communication.nodeId, CO_config_communication.bitRate);
+
+            if (initError || storageInitError) {
+                printf("CANopen - Error at entry: %i\n", initError || storageInitError);
+            }
+
+            /* Emergency errors */
+            if (!CO->nodeIdUnconfigured) {
+                if (initError != 0) {
+                    CO_errorReport(CO->em, CO_EM_INCONSISTENT_OBJECT_DICT, CO_EMC_DATA_SET, initError);
+                }
+                if (storageInitError != 0) {
+                    CO_errorReport(CO->em, CO_EM_NON_VOLATILE_MEMORY, CO_EMC_HARDWARE, storageInitError);
+                }
+            }
+
+            /* start CAN */
+            CO_CANsetNormalMode(CO->CANmodule);
         }
 
         if (reset >= CO_RESET_APP) {
+#ifdef CO_USE_APPLICATION
+            /* Execute optional external application code */
+            app_programEnd();
+#endif
+#if (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE
+            printf("CANopenNode - Autosaving...\n");
+            CO_storageFlash_auto_process(&CO_storage);
+#endif
             printf("System - Resetting...\n");
             scb_reset_system();
         }
 
-        log_printf("System - Running...\n");
+        printf("System - Running...\n");
         // Wait for reset notification
         xTaskNotifyWaitIndexed(0,              /* Wait for 0th notification. */
                                0xffffffffUL,   /* Clear any notification bits on entry. */
-                               0xffffffffUL,           /* Reset the notification value to 0 on exit. */
+                               0xffffffffUL,   /* Reset the notification value to 0 on exit. */
                                &reset,         /* Retrieve reset command */
                                portMAX_DELAY); /* Block indefinitely. */
     }
@@ -347,20 +368,23 @@ static void TaskCANOpenMainline(void *pvParameters) {
     while (true) {
         TickType_t current_tick = xTaskGetTickCount();
         uint32_t timeout = 0xffffffffUL;
+        uint32_t us_since_last_tick = (current_tick - last_tick) * US_PER_TICK;
 
-        CO_NMT_reset_cmd_t reset = CO_process(CO, false, (current_tick - last_tick) * US_PER_TICK, &timeout);
+        CO_NMT_reset_cmd_t reset = CO_process(CO, false, us_since_last_tick, &timeout);
 
         LED_red = CO_LED_RED(CO->LEDs, CO_LED_CANopen);
         LED_green = CO_LED_GREEN(CO->LEDs, CO_LED_CANopen);
 
+#ifdef CO_USE_APPLICATION
+        /* Execute optional external application code */
+        app_programAsync(CO, us_since_last_tick);
+#endif
         if (reset != CO_RESET_NOT) {
-            if (xTaskNotifyIndexed(TaskCANOpenControlHandle, 0, reset, eSetValueWithOverwrite) == pdTRUE) {
-              taskYIELD();
-            }
+            xTaskNotifyIndexed(TaskCANOpenControlHandle, 0, reset, eSetValueWithOverwrite);
         }
 
         last_tick = current_tick;
-        xSemaphoreTake( TaskMainlineSemaphore, timeout / US_PER_TICK);
+        xSemaphoreTake(TaskMainlineSemaphore, timeout / US_PER_TICK);
     }
 }
 
@@ -372,33 +396,40 @@ static void TaskCANOpenProcessing(void *pvParameters) {
     TickType_t last_storage_tick = last_tick;
     while (true) {
         TickType_t current_tick = xTaskGetTickCount();
-        uint32_t timeout = 2000000000;
+        uint32_t timeout = 0xffffffffUL;
 
         CO_LOCK_OD(co->CANmodule);
         if (!CO->nodeIdUnconfigured && CO->CANmodule->CANnormal) {
             bool_t syncWas = false;
+            uint32_t us_since_last_tick = (current_tick - last_tick) * US_PER_TICK;
 
 #if (CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE
-            syncWas = CO_process_SYNC(CO, (current_tick - last_tick) * US_PER_TICK, &timeout);
+            syncWas = CO_process_SYNC(CO, us_since_last_tick, &timeout);
 #endif
 #if (CO_CONFIG_PDO) & CO_CONFIG_RPDO_ENABLE
-            CO_process_RPDO(CO, syncWas, (current_tick - last_tick) * US_PER_TICK, &timeout);
+            CO_process_RPDO(CO, syncWas, us_since_last_tick, &timeout);
+#endif
+#ifdef CO_USE_APPLICATION
+            /* Execute optional external application code */
+            app_programRt(CO, us_since_last_tick);
 #endif
 #if (CO_CONFIG_PDO) & CO_CONFIG_TPDO_ENABLE
-            CO_process_TPDO(CO, syncWas, (current_tick - last_tick) * US_PER_TICK, &timeout);
+            CO_process_TPDO(CO, syncWas, us_since_last_tick, &timeout);
 #endif
         }
         CO_UNLOCK_OD(co->CANmodule);
 
+#if (CO_CONFIG_STORAGE) & CO_CONFIG_STORAGE_ENABLE
         /* Thorttle autostorage to 1s */
         if ((current_tick - last_storage_tick) * US_PER_TICK > 1000000) {
             last_storage_tick = current_tick;
-            log_printf("CANopenNode - Autosaving...\n");
+            printf("CANopenNode - Autosaving...\n");
             CO_storageFlash_auto_process(&CO_storage);
         }
+#endif
 
         last_tick = current_tick;
-        xSemaphoreTake( TaskProcessingSemaphore, timeout / US_PER_TICK );
+        xSemaphoreTake(TaskProcessingSemaphore, timeout / US_PER_TICK);
     }
 }
 /* main ***********************************************************************/
@@ -410,7 +441,7 @@ int main(void) {
     xTaskCreate(TaskCANOpenControl, "COControl", 200, NULL, 3, &TaskCANOpenControlHandle);
     xTaskCreate(TaskCANOpenMainline, "COMainline", 150, NULL, 2, &TaskCANOpenMainlineHandle);
     xTaskCreate(TaskCANOpenProcessing, "COProcessing", 50, NULL, 1, &TaskCANOpenProcessingHandle);
-    
+
     printf("System - Starting tasks...\n");
     vTaskStartScheduler();
     for (;;)
