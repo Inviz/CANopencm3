@@ -24,9 +24,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#include <stdio.h>
 #include "301/CO_driver.h"
-
 //#include <libopencm3/stm32/flash.h>
 
 #ifndef CO_CANbitRateDataInitializers
@@ -229,7 +228,8 @@ CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t *CANmodule, void *CANptr,
   if (CANbitRate == 0 || CANbitRateData == NULL) {
     return CO_ERROR_ILLEGAL_BAUDRATE;
   }
-  if (can_init(CANmodule->CANport, false, /* TTCM: Time triggered comm mode? */
+  if (can_init(CANmodule->CANport,  /* Which port to use? */
+               false, /* TTCM: Time triggered comm mode? */
                true,  /* ABOM: Automatic bus-off management? */
                true,  /* AWUM: Automatic wakeup mode? */
                false, /* NART: No automatic retransmission? */
@@ -467,22 +467,24 @@ void CO_CANRxInterrupt(CO_CANmodule_t *CANmodule) {
   uint8_t fmi;
   CO_CANrxMsg_t rcvMsg; /* pointer to received message in CAN module */
   uint16_t index;       /* index of received message */
-  CO_CANrx_t *buffer =
-      NULL; /* receive message buffer from CO_CANmodule_t object. */
+  CO_CANrx_t *buffer = NULL; /* receive message buffer from CO_CANmodule_t object. */
   bool_t msgMatched = false;
+  uint16_t rcvMsgIdent;       /* identifier of the received message */
 
   can_receive(CANmodule->CANport, CANmodule->CANrxFifoIndex, true,
               &rcvMsg.ident, &ext, &rtr, &fmi, &rcvMsg.DLC, rcvMsg.data, NULL);
 
+  rcvMsgIdent = rcvMsg.ident;
+  if(rtr) rcvMsgIdent |= 0x0800;
+
   if (CANmodule->useCANrxFilters) {
     /* CAN module filters are used. Message with known 11-bit identifier has */
     /* been received */
-    index =
-        0; /* get index of the received message here. Or something similar */
+    index = 0; /* get index of the received message here. Or something similar */
     if (index < CANmodule->rxSize) {
       buffer = &CANmodule->rxArray[index];
       /* verify also RTR */
-      if (((rcvMsg.ident ^ buffer->ident) & buffer->mask) == 0U) {
+      if (((rcvMsgIdent ^ buffer->ident) & buffer->mask) == 0U) {
         msgMatched = true;
       }
     }
@@ -492,7 +494,7 @@ void CO_CANRxInterrupt(CO_CANmodule_t *CANmodule) {
     /* has been received. Search rxArray form CANmodule for the same CAN-ID. */
     buffer = &CANmodule->rxArray[0];
     for (index = CANmodule->rxSize; index > 0U; index--) {
-      if (((rcvMsg.ident ^ buffer->ident) & buffer->mask) == 0U) {
+      if (((rcvMsgIdent ^ buffer->ident) & buffer->mask) == 0U) {
         msgMatched = true;
         break;
       }
@@ -502,7 +504,12 @@ void CO_CANRxInterrupt(CO_CANmodule_t *CANmodule) {
 
   /* Call specific function, which will process the message */
   if (msgMatched && (buffer != NULL) && (buffer->CANrx_callback != NULL)) {
-    buffer->CANrx_callback(buffer, &rcvMsg);
+    /*log_printf("can_receive * ident: 0x%03X, DLC: %d 0x[%02X %02X %02X %02X %02X %02X %02X %02X] flags: 0x%08X idx: %d, cb: %d",
+             rcvMsg.ident, rcvMsg.DLC, rcvMsg.data[0], rcvMsg.data[1], rcvMsg.data[2], rcvMsg.data[3],
+             rcvMsg.data[4], rcvMsg.data[5], rcvMsg.data[6], rcvMsg.data[7], 0, CANmodule->rxSize - index,
+             (int)(void *)buffer->CANrx_callback);*/
+
+    buffer->CANrx_callback(buffer->object, &rcvMsg);
   }
 }
 /* Interrupt called when message was not sent immediately due to
